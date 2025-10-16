@@ -13,3 +13,6 @@ seaborn
 
 #notebooks
 jupyterlab
+
+# data
+openpyxl
