@@ -397,26 +397,26 @@ class WeatherDataFetcher:
 
 
 # Example usage
-if __name__ == "__main__":
-    # Initialize weather fetcher for Pittsburgh
-    fetcher = WeatherDataFetcher(
-        latitude=40.4406,    # Pittsburgh
-        longitude=-79.9959,
-        timezone="America/New_York"
-    )
+# if __name__ == "__main__":
+#     # Initialize weather fetcher for Pittsburgh
+#     fetcher = WeatherDataFetcher(
+#         latitude=40.4406,    # Pittsburgh
+#         longitude=-79.9959,
+#         timezone="America/New_York"
+#     )
 
-    # Example 1: Fetch daily weather data
-    print("EXAMPLE 1: Daily Weather Data")
-    print("=" * 70)
-    df_daily = fetcher.fetch_data(
-        start_date="2023-10-01",
-        end_date="2024-09-30",
-        output_file_path="weather_daily.csv",
-        hourly=False,
-        delay=0.5
-    )
+#     # Example 1: Fetch daily weather data
+#     print("EXAMPLE 1: Daily Weather Data")
+#     print("=" * 70)
+#     df_daily = fetcher.fetch_data(
+#         start_date="2023-10-01",
+#         end_date="2024-09-30",
+#         output_file_path="weather_daily.csv",
+#         hourly=False,
+#         delay=0.5
+#     )
 
-    print("\n\n")
+#     print("\n\n")
 
     # # Example 2: Fetch hourly weather data (for more detailed analysis)
     # print("EXAMPLE 2: Hourly Weather Data (3 months)")
@@ -449,3 +449,6 @@ if __name__ == "__main__":
         
     # except FileNotFoundError:
     #     print("Trip data file not found. Run POGOH fetcher first.")
+
+
+__all__ = ["WeatherDataFetcher"]

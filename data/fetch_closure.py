@@ -453,3 +453,6 @@ class ClosureDataFetcher:
         stats["output_file"] = output_file_path
         stats["date_field"] = date_field
         return stats
+
+
+__all__ = ["ClosureDataFetcher"]

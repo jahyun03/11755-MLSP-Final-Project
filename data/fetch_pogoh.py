@@ -509,3 +509,6 @@ class POGOHDataFetcher:
 
         total_stats["output_file"] = output_file_path
         return total_stats
+
+
+__all__ = ["POGOHDataFetcher"]
