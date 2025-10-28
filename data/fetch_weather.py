@@ -1,3 +1,5 @@
+import os
+from pathlib import Path
 import requests
 import pandas as pd
 from datetime import datetime, timedelta
@@ -243,15 +245,13 @@ class WeatherDataFetcher:
                 end_dt = datetime.strptime(end_date, "%Y-%m")
                 # Get last day of month
                 next_month = end_dt + timedelta(days=32)
-                last_day = (next_month.replace(day=1) - timedelta(days=1))
+                last_day = next_month.replace(day=1) - timedelta(days=1)
                 end_date = last_day.strftime("%Y-%m-%d")
             else:
                 datetime.strptime(end_date, "%Y-%m-%d")
 
         except ValueError as e:
-            raise ValueError(
-                f"Invalid date format. Use 'YYYY-MM-DD' or 'YYYY-MM': {e}"
-            )
+            raise ValueError(f"Invalid date format. Use 'YYYY-MM-DD' or 'YYYY-MM': {e}")
 
         print(f"Fetching weather data from {start_date} to {end_date}")
         print(f"Location: ({self.latitude}, {self.longitude})")
@@ -299,6 +299,19 @@ class WeatherDataFetcher:
         df_combined = df_combined.sort_values("date").reset_index(drop=True)
 
         # Save to CSV if path provided
+        if output_file_path is None:
+            output_dir = Path.cwd() / f"processed_data/raw"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_file_path = (
+                output_dir / f"weather_data_{start_date}_to_{end_date}.csv"
+            )
+        else:
+            if os.path.exists(output_file_path):
+                print(f"Warning: Overwriting existing file at {output_file_path}")
+                os.remove(output_file_path)
+            else:
+                output_file_path = Path(output_file_path)
+                output_file_path.parent.mkdir(parents=True, exist_ok=True)
         if output_file_path:
             df_combined.to_csv(output_file_path, index=False)
             print(f"Saved {len(df_combined)} records to {output_file_path}")
@@ -318,137 +331,20 @@ class WeatherDataFetcher:
             print(f"  Min temp: {df_combined['temperature_2m_min'].min():.1f}°C")
 
             print("\nPrecipitation Statistics:")
-            print(f"  Total precipitation: {df_combined['precipitation_sum'].sum():.1f} mm")
+            print(
+                f"  Total precipitation: {df_combined['precipitation_sum'].sum():.1f} mm"
+            )
             print(f"  Days with rain: {(df_combined['precipitation_sum'] > 0).sum()}")
 
             print("\nWind Statistics:")
-            print(f"  Max wind speed: {df_combined['wind_speed_10m_max'].max():.1f} km/h")
-            print(f"  Mean wind speed: {df_combined['wind_speed_10m_max'].mean():.1f} km/h")
+            print(
+                f"  Max wind speed: {df_combined['wind_speed_10m_max'].max():.1f} km/h"
+            )
+            print(
+                f"  Mean wind speed: {df_combined['wind_speed_10m_max'].mean():.1f} km/h"
+            )
 
         return df_combined
-
-    def fetch_and_merge_with_trips(
-        self,
-        trips_df: pd.DataFrame,
-        date_column: str = "Start Date",
-        output_file_path: Optional[str] = None,
-    ) -> pd.DataFrame:
-        """
-        Fetch weather data and merge it with trip data.
-
-        Parameters
-        ----------
-        trips_df : pd.DataFrame
-            DataFrame containing trip data
-        date_column : str, optional
-            Name of the date column in trips_df, by default "Start Date"
-        output_file_path : Optional[str], optional
-            Path to save merged data, by default None
-
-        Returns
-        -------
-        pd.DataFrame
-            Merged DataFrame with trip and weather data
-        """
-        # Extract date range from trips
-        trips_df[date_column] = pd.to_datetime(trips_df[date_column])
-        trips_df['date'] = trips_df[date_column].dt.date
-
-        min_date = trips_df['date'].min()
-        max_date = trips_df['date'].max()
-
-        print("Fetching weather data to match trip data...")
-        print(f"Trip date range: {min_date} to {max_date}")
-        print("-" * 70)
-
-        # Fetch weather data
-        weather_df = self.fetch_data(
-            start_date=str(min_date),
-            end_date=str(max_date),
-            hourly=False,  # Daily aggregates for merging
-        )
-
-        if weather_df.empty:
-            print("Failed to fetch weather data")
-            return trips_df
-
-        # Prepare for merge
-        weather_df['date'] = pd.to_datetime(weather_df['date']).dt.date
-
-        # Merge on date
-        print("\nMerging weather data with trip data...")
-        merged_df = trips_df.merge(
-            weather_df,
-            on='date',
-            how='left'
-        )
-
-        # Drop temporary date column
-        merged_df = merged_df.drop(columns=['date'])
-
-        print(f"✓ Merged {len(merged_df)} trips with weather data")
-        print(f"Missing weather data: {merged_df['temperature_2m_mean'].isna().sum()} rows")
-
-        if output_file_path:
-            merged_df.to_csv(output_file_path, index=False)
-            print(f"Saved merged data to {output_file_path}")
-
-        return merged_df
-
-
-# Example usage
-# if __name__ == "__main__":
-#     # Initialize weather fetcher for Pittsburgh
-#     fetcher = WeatherDataFetcher(
-#         latitude=40.4406,    # Pittsburgh
-#         longitude=-79.9959,
-#         timezone="America/New_York"
-#     )
-
-#     # Example 1: Fetch daily weather data
-#     print("EXAMPLE 1: Daily Weather Data")
-#     print("=" * 70)
-#     df_daily = fetcher.fetch_data(
-#         start_date="2023-10-01",
-#         end_date="2024-09-30",
-#         output_file_path="weather_daily.csv",
-#         hourly=False,
-#         delay=0.5
-#     )
-
-#     print("\n\n")
-
-    # # Example 2: Fetch hourly weather data (for more detailed analysis)
-    # print("EXAMPLE 2: Hourly Weather Data (3 months)")
-    # print("=" * 70)
-    # df_hourly = fetcher.fetch_data(
-    #     start_date="2024-01-01",
-    #     end_date="2024-03-31",
-    #     output_file_path="weather_hourly.csv",
-    #     hourly=True,
-    #     delay=0.5
-    # )
-
-    # # Example 3: Load trip data and merge with weather
-    # print("\n\n")
-    # print("EXAMPLE 3: Merge Weather with Trip Data")
-    # print("=" * 70)
     
-    # # Load POGOH trip data (assuming you've already downloaded it)
-    # try:
-    #     trips_df = pd.read_csv("pogoh_trips_12months.csv", nrows=10000)
-        
-    #     merged_df = fetcher.fetch_and_merge_with_trips(
-    #         trips_df=trips_df,
-    #         date_column="Start Date",
-    #         output_file_path="trips_with_weather.csv"
-    #     )
-        
-    #     print("\nMerged Data Preview:")
-    #     print(merged_df[['Start Date', 'temperature_2m_mean', 'precipitation_sum', 'wind_speed_10m_max']].head())
-        
-    # except FileNotFoundError:
-    #     print("Trip data file not found. Run POGOH fetcher first.")
-
 
 __all__ = ["WeatherDataFetcher"]
