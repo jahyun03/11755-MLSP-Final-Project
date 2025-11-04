@@ -246,6 +246,10 @@ class POGOHDataFetcher:
             Whether to write the header row, by default False
         """
         mode = "w" if write_header else "a"
+        # for dataset before Nov 2022, they don't have a field of Closed Status
+        # This should be the first column of the entire dataset
+        if "Closed Status" not in df.columns:
+            df.insert(0, "Closed Status", pd.NA)
         df.to_csv(output_file_path, mode=mode, index=False, header=write_header)
 
     def fetch_data_streaming(
@@ -508,6 +512,28 @@ class POGOHDataFetcher:
             print(f"File size: {file_size:.2f} MB")
 
         total_stats["output_file"] = output_file_path
+
+        # sorting by 'Start Date' column
+        print("\nSorting the final output by 'Start Date' column...")
+        df_iter = pd.read_csv(
+            output_file_path,
+            chunksize=self.chunk_size,
+            on_bad_lines="skip",
+            encoding="utf-8",
+            encoding_errors="replace",
+        )
+        sorted_chunks = []
+        for chunk in df_iter:
+            chunk["Start Date"] = pd.to_datetime(chunk["Start Date"], errors="coerce")
+            chunk = chunk.sort_values(by="Start Date")
+            sorted_chunks.append(chunk)
+            del chunk
+            gc.collect()
+        sorted_df = pd.concat(sorted_chunks)
+        sorted_df.to_csv(output_file_path, index=False)
+        del sorted_df
+        gc.collect()
+        print("Sorting complete.")
         return total_stats
 
 
