@@ -5,7 +5,7 @@ from pathlib import Path
 from datetime import datetime
 from typing import Optional, Dict, List
 import logging
-# import holidays
+import holidays
 
 
 class DataProcessor:
@@ -119,7 +119,6 @@ class DataProcessor:
             return None
         
         latest = max(files, key=lambda f: f.stat().st_mtime) # return newests
-        self.logger.info(f"Found latest file: {latest.name}")
         return latest
     
     def load_pogoh_data(
@@ -298,17 +297,22 @@ class DataProcessor:
         if self.temporal_features.get('month'):
             df['month'] = df['date'].dt.month
         
-        if self.temporal_features.get('quarter'):
-            df['quarter'] = df['date'].dt.quarter
-            feature_count += 1
-        
         if self.temporal_features.get('is_weekend'):
             df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype(int)
         
         if self.temporal_features.get('is_holiday'):
+            us_holidays = holidays.US()
             df['is_holiday'] = df['date'].apply(
-                lambda x: x in holidays.US(years=x.year)
+                lambda x: x in us_holidays
             ).astype(int)
+        
+        if self.temporal_features.get('day_of_year'):
+            df['day_of_year'] = df['date'].dt.dayofyear
+        
+        if self.temporal_features.get('week_of_year'):
+            df['week_of_year'] = df['date'].dt.isocalendar().week
+        
+        # season??
 
         # Cyclical encoding
         if self.temporal_features.get('month_sin'):
@@ -322,8 +326,7 @@ class DataProcessor:
         
         if self.temporal_features.get('dow_cos'):
             df['dow_cos'] = np.cos(2 * np.pi * df['day_of_week'] / 7)
-        
-        self.logger.info(f"  Added {feature_count} temporal features")
+
         
         return df
     
