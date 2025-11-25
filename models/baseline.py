@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional
 from statsmodels.tsa.arima.model import ARIMA
+from statsmodels.tsa.statespace.sarimax import SARIMAX
 from sklearn.metrics import mean_squared_error, mean_absolute_error
 
 class ARIMAModel:
@@ -204,6 +205,122 @@ class ARIMAXModel:
     def get_bic(self) -> float:
         return self.fitted_model.bic if self.fitted_model else None
 
+class SARIMAXModel:
+    """SARIMAX model that extends ARIMAX to include seasonal components."""
+    
+    def __init__(
+        self, 
+        order: tuple[int, int, int] = (1, 1, 1), 
+        seasonal_order: tuple[int, int, int, int] = (0, 0, 0, 0)
+    ):
+        """
+        Initialize SARIMAX model.
+        
+        Parameters
+        ----------
+        order : tuple[int, int, int]
+            (p, d, q) order of the ARIMA model.
+        seasonal_order : tuple[int, int, int, int]
+            (P, D, Q, s) seasonal order of the ARIMA model.
+        """
+        self.order = order
+        self.seasonal_order = seasonal_order
+        self.model = None
+        self.fitted_model = None
+        self.exog_columns = None
+        
+    def fit(self, y: pd.Series, exog: Optional[pd.DataFrame] = None, **kwargs):
+        """
+        Fit SARIMAX model to time series.
+        
+        Parameters
+        ----------
+        y : pd.Series
+            Time series to fit.
+        exog : Optional[pd.DataFrame]
+            Exogenous variables.
+        **kwargs
+            Additional arguments passed to ARIMA.fit().
+            
+        Returns
+        -------
+        self
+        """
+        if exog is not None:
+            self.exog_columns = exog.columns.tolist()
+        
+        self.model = SARIMAX(
+            y,
+            exog=exog,
+            order=self.order,
+            seasonal_order=self.seasonal_order,
+            enforce_stationarity=False,
+            enforce_invertibility=False,
+        )
+        
+        # Fitting parameters
+        fit_kwargs = {
+            'method': 'lbfgs',
+            'maxiter': 200,
+        }
+        fit_kwargs.update(kwargs)
+
+        try:
+            self.fitted_model = self.model.fit(**fit_kwargs)
+        except TypeError:
+            # Fallback for older statsmodels versions
+            self.fitted_model = self.model.fit(method_kwargs=fit_kwargs)
+            
+        return self
+    
+    def predict(self, steps: int = 1, exog: Optional[pd.DataFrame] = None) -> np.ndarray:
+        """
+        Generate forecasts.
+        
+        Parameters
+        ----------
+        steps : int
+            Number of steps ahead to forecast.
+        exog : Optional[pd.DataFrame]
+            Future exogenous variables (required if model was fit with exog).
+            
+        Returns
+        -------
+        np.ndarray
+            Forecast values.
+        """
+        if self.fitted_model is None:
+            raise ValueError("Model must be fitted prior to prediction")
+        
+        forecast = self.fitted_model.forecast(steps=steps, exog=exog)
+        return forecast.values
+    
+    def forecast(self, steps: int = 1, exog: Optional[pd.DataFrame] = None) -> pd.Series:
+        """
+        Generate forecasts as Series.
+        
+        Parameters
+        ----------
+        steps : int
+            Number of steps ahead to forecast.
+        exog : Optional[pd.DataFrame]
+            Future exogenous variables.
+            
+        Returns
+        -------
+        pd.Series
+            Forecast values.
+        """
+        return pd.Series(self.predict(steps, exog))
+    
+    def get_aic(self) -> float:
+        """Get AIC of fitted model."""
+        return self.fitted_model.aic if self.fitted_model else None
+    
+    def get_bic(self) -> float:
+        """Get BIC of fitted model."""
+        return self.fitted_model.bic if self.fitted_model else None
+
 def evaluate_forecast(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float]:
     """
     Calculate forecast evaluation metrics.
@@ -250,5 +367,6 @@ def evaluate_forecast(y_true: np.ndarray, y_pred: np.ndarray) -> dict[str, float
 __all__ = [
     'ARIMAModel', 
     'ARIMAXModel', 
+    'SARIMAXModel',
     'evaluate_forecast',
 ]
