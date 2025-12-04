@@ -37,7 +37,7 @@ class DataProcessor:
         self.file_patterns = {
             'pogoh': 'pogoh_data_*.csv',
             'weather': 'weather_data_*.csv',
-            # 'closures': 'closure_data_*.csv',
+            'closures': 'closure_data_*.csv',
             # 'events': 'events_data_*.csv',
             # 'transit': 'transit_data_*.csv'
         }
@@ -243,6 +243,60 @@ class DataProcessor:
         
         return df
     
+    def load_closure_data(
+            self,
+            file_path: Optional[str] = None,
+            start_date: Optional[str] = None,
+            end_date: Optional[str] = None
+        ) -> pd.DataFrame:
+            """
+            Load street closure data.
+            
+            Parameters
+            ----------
+            file_path : Optional[str]
+                Specific file path. If None, finds latest matching pattern.
+            start_date : Optional[str]
+                Filter start date (YYYY-MM-DD)
+            end_date : Optional[str]
+                Filter end date (YYYY-MM-DD)
+                
+            Returns
+            -------
+            pd.DataFrame
+                Closure data with date columns
+            """
+            self.logger.info("Loading closure data...")
+            
+            if file_path is None:
+                file_path = self._find_latest_file(self.file_patterns['closures'])
+                if file_path is None:
+                    self.logger.warning("No closure data found. Skipping closure features.")
+                    return None
+            else:
+                file_path = Path(file_path)
+            
+            # Load closure data
+            df = pd.read_csv(file_path, low_memory=False)
+            
+            # Identify date columns
+            date_cols = ['effective_date', 'expiration_date', 'issue_date', 'application_date']
+            for col in date_cols:
+                if col in df.columns:
+                    df[col] = pd.to_datetime(df[col], errors='coerce')
+            
+            # Filter by effective_date if available
+            if 'effective_date' in df.columns:
+                if start_date:
+                    df = df[df['effective_date'] >= start_date]
+                if end_date:
+                    df = df[df['effective_date'] <= end_date]
+            
+            self.logger.info(f"Loaded {len(df):,} closure records")
+            
+            return df
+    
+    
     def aggregate_to_daily(
         self, df: pd.DataFrame) -> pd.DataFrame:
         """
@@ -386,7 +440,114 @@ class DataProcessor:
         self.logger.info(f"  Added weather features")
         
         return df
-    
+
+    def create_closure_features(
+        self, 
+        closure_df: pd.DataFrame, 
+        date_range: pd.DatetimeIndex
+    ) -> pd.DataFrame:
+        """
+        Create daily closure features from raw closure data.
+        
+        Parameters
+        ----------
+        closure_df : pd.DataFrame
+            Raw closure data with effective_date and expiration_date
+        date_range : pd.DatetimeIndex
+            Date range to create features for
+            
+        Returns
+        -------
+        pd.DataFrame
+            DataFrame with date and closure features
+        """
+        self.logger.info("Creating closure features...")
+        
+        if closure_df is None or len(closure_df) == 0:
+            self.logger.warning("No closure data available. Creating empty features.")
+            return pd.DataFrame({
+                'date': date_range,
+                'active_closures': 0,
+                'new_closures': 0,
+                'closure_duration_avg': 0.0,
+                'has_full_closure': 0,
+                'has_partial_closure': 0,
+            })
+        
+        # Ensure date columns exist
+        if 'effective_date' not in closure_df.columns:
+            self.logger.warning("No effective_date column found in closure data.")
+            return pd.DataFrame({'date': date_range})
+        
+        # Initialize result DataFrame
+        result = pd.DataFrame({'date': date_range})
+        
+        # Calculate features for each date
+        active_closures = []
+        new_closures = []
+        avg_durations = []
+        has_full = []
+        has_partial = []
+        
+        for date in date_range:
+            # Active closures: effective_date <= date <= expiration_date
+            if 'expiration_date' in closure_df.columns:
+                active_mask = (
+                    (closure_df['effective_date'] <= date) & 
+                    (closure_df['expiration_date'] >= date)
+                )
+            else:
+                # If no expiration, just check effective date
+                active_mask = (closure_df['effective_date'] == date)
+            
+            active = closure_df[active_mask]
+            active_closures.append(len(active))
+            
+            # New closures starting on this date
+            new_mask = (closure_df['effective_date'].dt.date == date.date())
+            new_closures.append(closure_df[new_mask].shape[0])
+            
+            # Average duration of active closures
+            if 'expiration_date' in closure_df.columns and len(active) > 0:
+                durations = (active['expiration_date'] - active['effective_date']).dt.days
+                avg_durations.append(durations.mean() if len(durations) > 0 else 0)
+            else:
+                avg_durations.append(0)
+            
+            # Check for full vs partial closures (if closure_type column exists)
+            if 'closure_type' in closure_df.columns:
+                closure_types = active['closure_type'].str.lower() if len(active) > 0 else pd.Series([])
+                has_full.append(int(closure_types.str.contains('full', na=False).any()))
+                has_partial.append(int(closure_types.str.contains('partial', na=False).any()))
+            elif 'permit_type' in closure_df.columns:
+                permit_types = active['permit_type'].str.lower() if len(active) > 0 else pd.Series([])
+                has_full.append(int(permit_types.str.contains('full', na=False).any()))
+                has_partial.append(int(permit_types.str.contains('partial', na=False).any()))
+            else:
+                has_full.append(0)
+                has_partial.append(0)
+        
+        if self.closure_features.get('active_closures'):
+            result['active_closures'] = active_closures
+        
+        if self.closure_features.get('new_closures'):
+            result['new_closures'] = new_closures
+        
+        if self.closure_features.get('closure_duration_avg'):
+            result['closure_duration_avg'] = avg_durations
+        
+        if self.closure_features.get('has_full_closure'):
+            result['has_full_closure'] = has_full
+        
+        if self.closure_features.get('has_partial_closure'):
+            result['has_partial_closure'] = has_partial
+        
+        self.logger.info(f"  Created closure features for {len(result)} days")
+        self.logger.info(f"  Total active closure-days: {sum(active_closures)}")
+        self.logger.info(f"  Days with closures: {sum(1 for x in active_closures if x > 0)}")
+        
+        return result
+  
     def create_lag_features(
         self, 
         df: pd.DataFrame, 
@@ -431,6 +592,7 @@ class DataProcessor:
         start_date: str,
         end_date: str,
         include_lags: bool = True,
+        include_closures: bool = True,
         output_filename: str = "modeling_dataset.csv"
     ) -> pd.DataFrame:
         """
@@ -444,6 +606,8 @@ class DataProcessor:
             End date in 'YYYY-MM-DD' format
         include_lags : bool
             Whether to include lag features (default: True)
+        include_closurees : bool
+            Wehther to include closure features (default: True)
         output_filename : str
             Name for output file (saved to output_dir)
             
@@ -479,6 +643,20 @@ class DataProcessor:
         self.logger.info("\n weather features")
         weather_df = self.create_weather_features(weather_df)
         
+        # 5. load and process closure data 
+        closure_features_df = None
+        if include_closures:
+            self.logger.info("\nStep 5: Loading closure data")
+            closure_df = self.load_closure_data(
+                start_date=start_date,
+                end_date=end_date
+            )
+            
+            if closure_df is not None:
+                self.logger.info("\nStep 5b: Creating closure features")
+                date_range = pd.date_range(start_date, end_date, freq='D')
+                closure_features_df = self.create_closure_features(closure_df, date_range)
+        
         # 5. merge data
         self.logger.info("\n merge data sources")
         date_range = pd.date_range(start_date, end_date, freq='D')
@@ -486,6 +664,8 @@ class DataProcessor:
         
         df = df.merge(pogoh_daily, on='date', how='left')
         df = df.merge(weather_df, on='date', how='left')
+        if closure_features_df is not None:
+            df = df.merge(closure_features_df, on='date', how='left')
         df = self.create_temporal_features(df) # add temporal features
         
         # 6. lag features
@@ -505,6 +685,14 @@ class DataProcessor:
         for col in flag_cols:
             if col in df.columns:
                 df[col] = df[col].fillna(0)
+        
+        closure_cols = ['active_closures', 'new_closures']
+        for col in closure_cols:
+            if col in df.columns:
+                df[col] = df[col].fillna(0).astype(int)
+        
+        if 'closure_duration_avg' in df.columns:
+            df['closure_duration_avg'] = df['closure_duration_avg'].fillna(0)
 
         output_path = self.output_dir / output_filename # save output directory
         df.to_csv(output_path, index=False)

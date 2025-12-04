@@ -15,3 +15,9 @@ To fetch Weather data you can run:
 ```bash
 python scripts/fetch_data.py --d_name weather --start_date 2025-05-01 --end_date 2025-06-01 --timezone America/New_York
 ```
+
+To fetch closure data you can run:
+
+```bash
+python scripts/fetch_data.py --d_name closure --start_date 2025-05-01 --end_date 2025-06-01
+```

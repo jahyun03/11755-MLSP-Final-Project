@@ -302,7 +302,7 @@ class WeatherDataFetcher:
             output_dir = Path.cwd() / f"processed_data/raw"
             output_dir.mkdir(parents=True, exist_ok=True)
             output_file_path = (
-                output_dir / f"weather_data_{start_date}_to_{end_date}.csv"
+                output_dir / f"dataset_v1_pogoh_weather.csv"
             )
         else:
             if os.path.exists(output_file_path):

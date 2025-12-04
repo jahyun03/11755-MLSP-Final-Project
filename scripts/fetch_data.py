@@ -10,8 +10,22 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from data import POGOHDataFetcher, ClosureDataFetcher, WeatherDataFetcher
 
 
-def fetch_closure_data():
-    pass
+def fetch_closure_data(
+    start_date,
+    end_date,
+    date_field="effective_date",
+    output_file_path=None,
+    chunk_size=50_000,
+    delay=1.0
+):
+    fetcher = ClosureDataFetcher(chunk_size=chunk_size)
+    fetcher.fetch_data(
+        start_date=start_date,
+        end_date=end_date,
+        date_field=date_field,
+        output_file_path=output_file_path,
+        delay=delay,
+    )
 
 
 def fetch_pogoh_raw_data(start_date, end_date, chunk_size=50_000, output_file_path=None, batch_size=6, delay=1.0):
@@ -109,6 +123,13 @@ def main():
         default=False,
         help="Fetch hourly weather data (default: False).",
     )
+    parser.add_argument(
+    "--date_field",
+    type=str,
+    default="effective_date",
+    choices=["effective_date", "expiration_date", "issue_date", "application_date"],
+    help="Date field to filter closures on (default: effective_date).",
+)
 
 
     args = parser.parse_args()
@@ -137,6 +158,16 @@ def main():
             longitude=args.longitude,
             timezone=args.timezone,
             hourly=args.hourly,
+            output_file_path=args.output_file,
+            delay=args.delay,
+        )
+    elif args.d_name == "closure":
+        if not args.start_date or not args.end_date:
+            parser.error("--start_date and --end_date are required when --d_name closure")
+        fetch_closure_data(
+            start_date=args.start_date,
+            end_date=args.end_date,
+            date_field=args.date_field,
             output_file_path=args.output_file,
             delay=args.delay,
         )
