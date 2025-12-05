@@ -11,7 +11,7 @@ import pandas as pd
 from models import ARIMAModel, ARIMAXModel, SARIMAXModel, evaluate_forecast
 from models.rolling_cv import RollingCV
 from sklearn.preprocessing import StandardScaler
-from models.regressors import LinearRegressor, XGBoostRegressor, CatBoostRegressorT
+from models.regressors import LinearRegressor, XGBoostRegressor, CatBoostRegressorT, LightGBMRegressor
 import json
 
 
@@ -387,6 +387,52 @@ def eval_xgboost_regressor(df_copy):
     xgb_metrics = evaluate_forecast(xgb_true_values, xgb_preds)
     return xgb_metrics
 
+def eval_lgbm_regressor(df_copy):
+    df = df_copy.copy()
+    df["date"] = pd.to_datetime(df["date"])
+    df.set_index("date", inplace=True)
+
+    TARGET = "trip_count"
+    FEATURES = [
+        "month_sin",
+        "month_cos",
+        "dow_sin",
+        "dow_cos",
+        "temp_mean",
+        "precip",
+        "wind_speed",
+        "is_holiday",
+        "is_weekend",
+        "active_closures",
+        "new_closures",
+        "ending_closures",
+    ]
+    for col in FEATURES:
+        if df[col].dtype == "object":
+            df[col] = pd.to_numeric(df[col], errors="coerce")
+    y = df[TARGET]
+    X = df[FEATURES].copy()
+    initial_train_size = 365
+    test_size = 30
+    step = 30
+
+    lgbm_reg = LightGBMRegressor(
+        initial_train_size,
+        test_size,
+        step,
+        lags=[1, 7, 14],
+        window_features={7: ["mean", "std"], 14: ["mean"]},
+        n_estimators=1000,
+        learning_rate=0.05,
+        num_leaves=33,
+        verbose=-1
+    )
+    lgbm_reg.fit_predict(y, X)
+    lgbm_preds = lgbm_reg.get_predictions()
+    lgbm_true_values = lgbm_reg.get_true_values()
+    lgbm_metrics = evaluate_forecast(lgbm_true_values, lgbm_preds)
+    return lgbm_metrics
+
 
 def eval_catboost_regressor(df_copy):
     df = df_copy.copy()
@@ -454,11 +500,14 @@ def eval_regressor_models(df_copy):
     xgb_metrics = eval_xgboost_regressor(df_copy)
     print("Evaluating CatBoostRegressor...")
     catboost_metrics = eval_catboost_regressor(df_copy)
+    print("Evaluating LightGBMRegressor...")
+    lgbm_metrics = eval_lgbm_regressor(df_copy)
 
     return {
         "LinearRegressor": linear_metrics,
         "XGBoostRegressor": xgb_metrics,
         "CatBoostRegressor": catboost_metrics,
+        "LightGBMRegressor": lgbm_metrics,
     }
 
 

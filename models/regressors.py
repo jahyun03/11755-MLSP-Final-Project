@@ -5,6 +5,7 @@ from sklearn.metrics import mean_squared_error
 from typing import Optional
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
+from lightgbm import LGBMRegressor
 
 from models.rolling_cv import RollingCV
 
@@ -99,90 +100,64 @@ class LassoRegressor(BaseRegressor):
         super().__init__(initial_train_size, test_size, step)
         self.model = Lasso(alpha=alpha, **kwargs)
 
-class XGBoostRegressor(BaseRegressor):
+class FeatureEngineeringRegressor(BaseRegressor):
+    """
+    Base class for regressors that require feature engineering (lags, window features).
+    """
+    def __init__(self, initial_train_size: int, test_size: int, step: int = 1, lags: list = None, window_features: dict = None):
+        super().__init__(initial_train_size, test_size, step)
+        self.lags = lags if lags is not None else []
+        self.window_features = window_features if window_features is not None else {}
+
+    def _create_features(self, y: pd.Series, exog: Optional[pd.DataFrame] = None):
+        X = exog.copy() if exog is not None else pd.DataFrame(index=y.index)
+        
+        # Lag features
+        for lag in self.lags:
+            X[f'lag_{lag}'] = y.shift(lag)
+            
+        # Window features
+        for window, funcs in self.window_features.items():
+            for func in funcs:
+                X[f'window_{func}_{window}'] = y.shift(1).rolling(window=window).agg(func)
+
+        # Drop rows with NaN values created by feature engineering
+        X.dropna(inplace=True)
+        y = y[X.index]
+        
+        return y, X
+
+    def fit_predict(self, y: pd.Series, exog: Optional[pd.DataFrame] = None):
+        y, X = self._create_features(y, exog)
+        
+        for train_indices, test_indices in self.cv.split(X):
+            X_train, X_test = X.iloc[train_indices], X.iloc[test_indices]
+            y_train, y_test = y.iloc[train_indices], y.iloc[test_indices]
+            
+            self.model.fit(X_train, y_train)
+            preds = self.model.predict(X_test)
+            
+            self.predictions.extend(preds)
+            self.true_values.extend(y_test)
+            
+        return self
+
+class XGBoostRegressor(FeatureEngineeringRegressor):
     """XGBoost Regressor model with rolling CV."""
     def __init__(self, initial_train_size: int, test_size: int, step: int = 1, lags: list = None, window_features: dict = None, **kwargs):
-        super().__init__(initial_train_size, test_size, step)
+        super().__init__(initial_train_size, test_size, step, lags, window_features)
         self.model = XGBRegressor(**kwargs)
-        self.lags = lags if lags is not None else []
-        self.window_features = window_features if window_features is not None else {}
 
-    def _create_features(self, y: pd.Series, exog: Optional[pd.DataFrame] = None):
-        X = exog.copy() if exog is not None else pd.DataFrame(index=y.index)
-        
-        # Lag features
-        for lag in self.lags:
-            X[f'lag_{lag}'] = y.shift(lag)
-            
-        # Window features
-        for window, funcs in self.window_features.items():
-            for func in funcs:
-                X[f'window_{func}_{window}'] = y.shift(1).rolling(window=window).agg(func)
-
-        X.dropna(inplace=True)
-        y = y[X.index]
-        
-        return y, X
-
-    def fit_predict(self, y: pd.Series, exog: Optional[pd.DataFrame] = None):
-        y, X = self._create_features(y, exog)
-        
-        y_vals = y.values
-        X_vals = X.values
-        
-        for train_indices, test_indices in self.cv.split(X):
-            X_train, X_test = X_vals[train_indices], X_vals[test_indices]
-            y_train, y_test = y_vals[train_indices], y_vals[test_indices]
-            
-            self.model.fit(X_train, y_train)
-            preds = self.model.predict(X_test)
-            
-            self.predictions.extend(preds)
-            self.true_values.extend(y_test)
-            
-        return self
-
-class CatBoostRegressorT(BaseRegressor):
+class CatBoostRegressorT(FeatureEngineeringRegressor):
     """CatBoost Regressor model with rolling CV."""
     def __init__(self, initial_train_size: int, test_size: int, step: int = 1, lags: list = None, window_features: dict = None, **kwargs):
-        super().__init__(initial_train_size, test_size, step)
+        super().__init__(initial_train_size, test_size, step, lags, window_features)
         self.model = CatBoostRegressor(verbose=0, **kwargs)
-        self.lags = lags if lags is not None else []
-        self.window_features = window_features if window_features is not None else {}
 
-    def _create_features(self, y: pd.Series, exog: Optional[pd.DataFrame] = None):
-        X = exog.copy() if exog is not None else pd.DataFrame(index=y.index)
-        
-        # Lag features
-        for lag in self.lags:
-            X[f'lag_{lag}'] = y.shift(lag)
-            
-        # Window features
-        for window, funcs in self.window_features.items():
-            for func in funcs:
-                X[f'window_{func}_{window}'] = y.shift(1).rolling(window=window).agg(func)
+class LightGBMRegressor(FeatureEngineeringRegressor):
+    """LightGBM Regressor model with rolling CV."""
+    def __init__(self, initial_train_size: int, test_size: int, step: int = 1, lags: list = None, window_features: dict = None, **kwargs):
+        super().__init__(initial_train_size, test_size, step, lags, window_features)
+        self.model = LGBMRegressor(**kwargs)
 
-        X.dropna(inplace=True)
-        y = y[X.index]
-        
-        return y, X
-
-    def fit_predict(self, y: pd.Series, exog: Optional[pd.DataFrame] = None):
-        y, X = self._create_features(y, exog)
-        
-        y_vals = y.values
-        X_vals = X.values
-        
-        for train_indices, test_indices in self.cv.split(X):
-            X_train, X_test = X_vals[train_indices], X_vals[test_indices]
-            y_train, y_test = y_vals[train_indices], y_vals[test_indices]
-            
-            self.model.fit(X_train, y_train)
-            preds = self.model.predict(X_test)
-            
-            self.predictions.extend(preds)
-            self.true_values.extend(y_test)
-            
-        return self
-
-__all__ = ['LinearRegressor', 'RidgeRegressor', 'LassoRegressor', 'XGBoostRegressor', 'CatBoostRegressorT']
+__all__ = ['LinearRegressor', 'RidgeRegressor', 'LassoRegressor', 'XGBoostRegressor', 'CatBoostRegressorT', 'LightGBMRegressor']
